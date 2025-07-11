@@ -2,32 +2,18 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Toggle Real Route Between Two Points</title>
+  <title>Route from My Location on Hover</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.13.0/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v3.13.0/mapbox-gl.css" rel="stylesheet" />
   <style>
     body { margin: 0; padding: 0; }
-    #map { position: absolute; top: 0; bottom: 50px; width: 100%; }
-    #toggleBtn {
-      position: absolute;
-      bottom: 10px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 10px 20px;
-      background-color: #1978c8;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 16px;
-    }
+    #map { position: absolute; top: 0; bottom: 0; width: 100%; }
   </style>
 </head>
 <body>
 
 <div id="map"></div>
-<button id="toggleBtn">Show Route</button>
 
 <script>
   mapboxgl.accessToken = 'pk.eyJ1IjoiY2FzcGVyMjEiLCJhIjoiY21hdzV2OTZhMGIzNTJqcHU4d296NXR4NiJ9.CcTJpzheoL6YEbWXWXum2Q';
@@ -39,24 +25,43 @@
     zoom: 13
   });
 
-  const pointA = [121.5645, 25.0330];  // Taipei 101
   const pointB = [121.5170, 25.0478];  // Taipei Main Station
 
-  // Add markers
-  new mapboxgl.Marker({ color: 'red' }).setLngLat(pointA).addTo(map);
-  new mapboxgl.Marker({ color: 'green' }).setLngLat(pointB).addTo(map);
+  // Add marker for point B
+  const markerB = new mapboxgl.Marker({ color: 'green' })
+    .setLngLat(pointB)
+    .addTo(map);
 
-  let pathVisible = false;
+  let userLocation = null;
 
-  document.getElementById('toggleBtn').addEventListener('click', () => {
-    if (!pathVisible) {
-      // Fetch route from Mapbox Directions API
-      fetch(`https://api.mapbox.com/directions/v5/mapbox/walking/${pointA[0]},${pointA[1]};${pointB[0]},${pointB[1]}?geometries=geojson&access_token=${mapboxgl.accessToken}`)
-        .then(response => response.json())
-        .then(data => {
-          const route = data.routes[0].geometry;
+  // Get current location
+  navigator.geolocation.getCurrentPosition(position => {
+    userLocation = [position.coords.longitude, position.coords.latitude];
 
-          // Add route as a source and layer
+    // Add marker for user location
+    new mapboxgl.Marker({ color: 'red' })
+      .setLngLat(userLocation)
+      .addTo(map);
+  }, () => {
+    alert("Unable to retrieve your location.");
+  });
+
+  let routeVisible = false;
+
+  // Function to add route from user location to pointB
+  function addRoute() {
+    if (!userLocation) {
+      console.log("User location not available yet.");
+      return;
+    }
+
+    fetch(`https://api.mapbox.com/directions/v5/mapbox/walking/${userLocation[0]},${userLocation[1]};${pointB[0]},${pointB[1]}?geometries=geojson&access_token=${mapboxgl.accessToken}`)
+      .then(response => response.json())
+      .then(data => {
+        const route = data.routes[0].geometry;
+
+        // Add route source and layer
+        if (!map.getSource('route')) {
           map.addSource('route', {
             'type': 'geojson',
             'data': {
@@ -79,17 +84,28 @@
             }
           });
 
-          document.getElementById('toggleBtn').innerText = 'Hide Route';
-          pathVisible = true;
-        });
-    } else {
-      // Remove route
+          routeVisible = true;
+        }
+      });
+  }
+
+  // Function to remove route
+  function removeRoute() {
+    if (routeVisible) {
       if (map.getLayer('route-layer')) map.removeLayer('route-layer');
       if (map.getSource('route')) map.removeSource('route');
-
-      document.getElementById('toggleBtn').innerText = 'Show Route';
-      pathVisible = false;
+      routeVisible = false;
     }
+  }
+
+  // Show route on hover
+  markerB.getElement().addEventListener('mouseenter', () => {
+    addRoute();
+  });
+
+  // Optionally hide route on mouseout
+  markerB.getElement().addEventListener('mouseleave', () => {
+    removeRoute();
   });
 </script>
 
