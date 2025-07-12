@@ -19,7 +19,7 @@
     </div>
 
     <!-- 左側滑動篩選欄 -->
-    <div id="filter-sidenav" class="sidenav" style="transition: left 0.3s; left: 0;">
+    <div id="filter-sidenav" class="sidenav" style="position: fixed; top: 56px; left: 0; width: 320px; height: calc(100vh - 56px); z-index: 200; background: #222; transition: left 0.3s; overflow-y: auto;">
         <div class="condition-toggle-group">
             <label id="condition-toggle-label" style="cursor:pointer;">篩選條件</label>
             <button id="condition-toggle-btn" class="triangle-btn" type="button" aria-label="展開條件"></button>
@@ -41,6 +41,7 @@
                 <option value="distance">____公尺以內</option>
             </select>
             <input type="text" id="range-input" placeholder="10">
+            <button id="range-submit-btn" style="margin-left:8px; padding:2px 10px; border-radius:4px; border:1px solid #888; background:#444; color:#fff; cursor:pointer;">套用</button>
         </div>
         <!-- 排序區塊：三行距離/價格/剩餘空位，每行右側有上下箭頭 -->
         <div class="sort-list-group" style="width: calc(100% - 72px); margin-left: 32px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 4px;">
@@ -141,40 +142,31 @@
         <div id="parking-info-block">
             <h3 style="text-align:center; font-size:20px; color:#fff; margin-bottom:8px;">找到的停車場</h3>
             <div id="info-content">
-                <ul id="parking-list" style="background:rgba(255,255,255,0.95); color:#222; border-radius:8px; margin:0 16px; padding:8px 0;">
-                    <li>停車場 A - 100公尺</li>
-                    <li>停車場 B - 250公尺</li>
-                    <li>停車場 C - 400公尺</li>
-                    <li>停車場 D - 300公尺</li>
-                    <li>停車場 E - 350公尺</li>
-                    <li>停車場 F - 700公尺</li>
-                </ul>
+                <ul id="parking-list" style="background:rgba(255,255,255,0.95); color:#222; border-radius:8px; margin:0 16px; padding:8px 0;"></ul>
             </div>
         </div>
     </div>
 
-    <!-- Add menu button to the left side of the navbar -->
-    <button id="menu-toggle-btn" style="position:absolute; left:16px; top:16px; z-index:20; background:#333; color:#fff; border:none; border-radius:4px; padding:8px 12px; font-size:20px; cursor:pointer;">☰</button>
-
     <!-- 頂部標題欄，包含按鈕和網站標題 -->
-    <div id="top-bar">
-        <h1 id="main-title">停車場比價網</h1>
+    <div id="top-bar" style="position: fixed; top: 0; left: 0; width: 100%; z-index: 100; height: 56px; background: #222; display: flex; align-items: center;">
+        <button id="menu-toggle-btn" style="position:absolute; left:16px; top:50%; transform:translateY(-50%); z-index:20; background:#333; color:#fff; border:none; border-radius:4px; padding:8px 12px; font-size:20px; cursor:pointer;">☰</button>
+        <h1 id="main-title" style="margin-left:48px; color:#fff; font-size: 1.5rem;">停車場比價網</h1>
     </div>
 
-    <!-- 主要內容的包裝容器，包含地圖和右側資訊欄 -->
-    <div id="content-wrapper">
-        <!-- 中間主要內容區域 -->
-        <div id="main-content">
-            <div id="map-container" style="position: relative;">
-                <div id="map"></div>
-                <button id="locate-btn" class="locate-btn" onclick="locateUser()" title="定位我">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <circle cx="12" cy="12" r="8" stroke="#3498db" stroke-width="2" fill="#fff"/>
-                      <circle cx="12" cy="12" r="3" fill="#3498db"/>
-                    </svg>
-                </button>
-            </div>
-            <script>
+    <!-- 地圖全螢幕區域 -->
+    <div id="map-container" style="position: absolute; top: 56px; left: 0; width: 100vw; height: calc(100vh - 56px);">
+        <div id="map" style="width: 100vw; height: 100%; min-height: 400px;"></div>
+        <button id="locate-btn" class="locate-btn" onclick="locateUser()" title="定位我" style="position: absolute; right: 24px; bottom: 24px; z-index: 300;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="8" stroke="#3498db" stroke-width="2" fill="#fff"/>
+              <circle cx="12" cy="12" r="3" fill="#3498db"/>
+            </svg>
+        </button>
+    </div>
+
+    <!-- 引入 JavaScript 檔案 -->
+    <script src="./main.js"></script>
+    <script>
   mapboxgl.accessToken = 'pk.eyJ1IjoiY2FzcGVyMjEiLCJhIjoiY21jemluNnduMHQ5NTJrc2J6dGNoeG4zNCJ9.YOJYDPzvov3Q_SsxqjyR-A';
 
   let userLocation = null;
@@ -184,6 +176,7 @@
   let parking_markers = [];  // 儲存 marker 和停車場資料對應
   let filterIndoor = false; // Variable to store whether '室內停車場' is selected
   let filterEV = false; // Variable to store whether '電動車充電' is selected
+  let MAX_PARKING_RENDER = 10; // Default value, now let
 
   // 地圖初始化
   const map = new mapboxgl.Map({
@@ -199,8 +192,6 @@
 
 
   // 載入停車場 marker，但不計算距離
-  const MAX_PARKING_RENDER = 100; // <--- Set the maximum number of parking lots to render here
-
   // Isolated sorting function for parking lots
   function sortParkingLots(lots) {
     // Sort by distance ascending (smallest to largest)
@@ -303,6 +294,41 @@
             }
           });
         });
+
+        // Add this function to update the parking list
+        function updateParkingList(lots) {
+          const list = document.getElementById('parking-list');
+          list.innerHTML = '';
+          lots.forEach(lot => {
+            const li = document.createElement('li');
+            li.textContent = `${lot.name} - ${Math.round(lot.distance * 1000)}公尺`;
+            list.appendChild(li);
+          });
+        }
+
+        updateParkingList(filteredLots);
+        // --- Fix: fetch and update route/distance for each filtered lot ---
+        parking_list = [];
+        if (userLocation) {
+          filteredLots.forEach(point => {
+            const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${userLocation[0]},${userLocation[1]};${point.lng},${point.lat}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+            fetch(url)
+              .then(res => res.json())
+              .then(result => {
+                if (result.routes && result.routes[0]) {
+                  const distanceKm = (result.routes[0].distance / 1000).toFixed(2);
+                  const durationMin = Math.round(result.routes[0].duration / 60);
+                  const route = result.routes[0].geometry;
+                  parking_list.push({
+                    ...point,
+                    distance: parseFloat(distanceKm),
+                    duration: durationMin,
+                    route: route
+                  });
+                }
+              });
+          });
+        }
       });
   }
 
@@ -376,44 +402,40 @@
     }
   });
 
-    // --- Responsive map/sidebar layout fix ---
-    // Ensure flex layout for content wrapper
-    const style = document.createElement('style');
-    style.innerHTML = `
-      #content-wrapper { display: flex; height: 100vh; }
-      #filter-sidenav { width: 320px; min-width: 320px; max-width: 320px; }
-      #main-content { flex: 1 1 0; display: flex; flex-direction: column; }
-      #map-container { width: 100%; transition: width 0.3s; }
-      #map { width: 100%; height: 70vh; min-height: 400px; transition: width 0.3s; }
-    `;
-    document.head.appendChild(style);
-    // --- End flex layout fix ---
-
     document.addEventListener('DOMContentLoaded', function() {
       const menuBtn = document.getElementById('menu-toggle-btn');
       const sidenav = document.getElementById('filter-sidenav');
-      const mapContainer = document.getElementById('map-container');
       let sidenavOpen = true;
       menuBtn.addEventListener('click', function() {
         if (sidenavOpen) {
-          sidenav.style.display = 'none'; // Hide the sidenav completely
-          setTimeout(() => { map.resize(); }, 100); // Resize map after layout change
+          sidenav.style.left = '-320px'; // Hide the sidenav (slide out)
           sidenavOpen = false;
         } else {
-          sidenav.style.display = '';
-          setTimeout(() => { map.resize(); }, 100);
+          sidenav.style.left = '0'; // Show the sidenav (slide in)
           sidenavOpen = true;
         }
       });
     });
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const rangeSelect = document.getElementById('range-select');
+    const rangeInput = document.getElementById('range-input');
+    const rangeSubmit = document.getElementById('range-submit-btn');
+    function updateMaxParkingRender() {
+      if (rangeSelect.value === 'count') {
+        const val = parseInt(rangeInput.value, 10);
+        if (!isNaN(val) && val > 0) {
+          MAX_PARKING_RENDER = val;
+          if (userLocation) {
+            renderParkingLotsWithDistance(userLocation[1], userLocation[0]);
+          }
+        } else {
+          alert('請輸入大於0的整數');
+        }
+      }
+    }
+    rangeSubmit.addEventListener('click', updateMaxParkingRender);
+  });
         </script>
-        </div>
-
-        <!-- 右側資訊欄，顯示找到的停車場 -->
-        <!-- (已移至左側sidenav) -->
-    </div>
-
-    <!-- 引入 JavaScript 檔案 -->
-    <script src="./main.js"></script>
 </body>
 </html>
