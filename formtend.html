@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>停車場比價網</title>
+    <link rel="stylesheet" href="./main.css">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.13.0/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.13.0/mapbox-gl.css" rel="stylesheet" />
+</head>
+<body>
+    <!-- 定位權限請求遮罩層 (預設隱藏) -->
+    <div id="location-overlay">
+        <div class="overlay-content">
+            <h2>需要您的位置權限</h2>
+            <p>為了提供停車場資訊，本網站需要取得您目前的位置。請允許我們存取您的位置資訊。</p>
+            <button id="retry-location-btn">重試</button>
+        </div>
+    </div>
+
+    <!-- 左側滑動篩選欄 -->
+    <div id="filter-sidenav" class="sidenav">
+        <div class="condition-toggle-group">
+            <label id="condition-toggle-label" style="cursor:pointer;">篩選條件</label>
+            <button id="condition-toggle-btn" class="triangle-btn" type="button" aria-label="展開條件"></button>
+        </div>
+        <div id="condition-checkbox-group">
+            <div class="checkbox-row">
+                <label><input type="checkbox"> 室內停車場</label>
+                <label><istenenput type="checkbox"> 電動車充電</label>
+            </div>
+            <input type="text" id="price-input" placeholder="價格上限(元/h)，例如: 50">
+        </div>
+        <div class="range-toggle-group">
+            <label for="range-select" id="range-toggle-label" style="cursor:pointer;">搜尋範圍</label>
+            <button id="range-toggle-btn" class="triangle-btn" type="button" aria-label="展開搜尋範圍"></button>
+        </div>
+        <div id="range-select-group" style="display: none;">
+            <select id="range-select" onchange="updateRangePlaceholder()">
+                <option value="count">最近的____個</option>
+                <option value="distance">____公尺以內</option>
+            </select>
+            <input type="text" id="range-input" placeholder="10">
+        </div>
+        <!-- 排序區塊：三行距離/價格/剩餘空位，每行右側有上下箭頭 -->
+        <div class="sort-list-group" style="width: calc(100% - 72px); margin-left: 32px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 4px;">
+            <div class="sort-row sort-second"><span class="sort-label">📍距離</span><span></span></div>
+            <div class="sort-row sort-second"><span class="sort-label">💲價格</span><span></span></div>
+            <div class="sort-row sort-second"><span class="sort-label">🅿️剩餘空位</span><span></span></div>
+        </div>
+        <script>
+        function updateRangePlaceholder() {
+            var select = document.getElementById('range-select');
+            var input = document.getElementById('range-input');
+            if (select.value === 'count') {
+                input.placeholder = '例如：10';
+            } else {
+                input.placeholder = '例如：500';
+            }
+        }
+        // 展開/收合搜尋範圍
+        document.addEventListener('DOMContentLoaded', function() {
+            var btn = document.getElementById('range-toggle-btn');
+            var group = document.getElementById('range-select-group');
+            var label = document.getElementById('range-toggle-label');
+            function toggleRange() {
+                if (group.style.display === 'none') {
+                    group.style.display = 'block';
+                    btn.classList.add('open');
+                } else {
+                    group.style.display = 'none';
+                    btn.classList.remove('open');
+                }
+            }
+            btn.addEventListener('click', toggleRange);
+            label.addEventListener('click', toggleRange);
+            // 條件展開/收合
+            var condBtn = document.getElementById('condition-toggle-btn');
+            var condLabel = document.getElementById('condition-toggle-label');
+            var condGroup = document.getElementById('condition-checkbox-group');
+            function toggleCond() {
+                if (condGroup.style.display === 'none' || condGroup.style.display === '') {
+                    condGroup.style.display = 'block';
+                    condBtn.classList.add('open');
+                } else {
+                    condGroup.style.display = 'none';
+                    condBtn.classList.remove('open');
+                }
+            }
+            condBtn.addEventListener('click', toggleCond);
+            condLabel.addEventListener('click', toggleCond);
+
+            // 動態渲染排序箭頭
+            function renderSortArrows() {
+                const sortList = document.querySelector('.sort-list-group');
+                const rows = Array.from(sortList.querySelectorAll('.sort-row'));
+                rows.forEach((row, idx) => {
+                    const label = row.querySelector('.sort-label').textContent.trim();
+                    const span = row.querySelector('span:last-child');
+                    span.innerHTML = '';
+                    // 上箭頭
+                    if (idx > 0) {
+                        const upBtn = document.createElement('button');
+                        upBtn.className = 'sort-arrow sort-up';
+                        upBtn.title = label + '上移';
+                        upBtn.style = 'background:none; border:none; cursor:pointer; padding:2px 4px;';
+                        upBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 4l4 6H4z" fill="#818181"/></svg>';
+                        upBtn.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            const prev = row.previousElementSibling;
+                            if (prev && prev.classList.contains('sort-row')) {
+                                sortList.insertBefore(row, prev);
+                                renderSortArrows();
+                            }
+                        });
+                        span.appendChild(upBtn);
+                    }
+                    // 下箭頭
+                    if (idx < rows.length - 1) {
+                        const downBtn = document.createElement('button');
+                        downBtn.className = 'sort-arrow sort-down';
+                        downBtn.title = label + '下移';
+                        downBtn.style = 'background:none; border:none; cursor:pointer; padding:2px 4px;';
+                        downBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 12l-4-6h8z" fill="#818181"/></svg>';
+                        downBtn.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            const next = row.nextElementSibling;
+                            if (next && next.classList.contains('sort-row')) {
+                                sortList.insertBefore(next, row);
+                                renderSortArrows();
+                            }
+                        });
+                        span.appendChild(downBtn);
+                    }
+                });
+            }
+            renderSortArrows();
+        });
+        </script>
+        <!-- 找到的停車場區塊，直接跟在 input 下方 -->
+        <div id="parking-info-block">
+            <h3 style="text-align:center; font-size:20px; color:#fff; margin-bottom:8px;">找到的停車場</h3>
+            <div id="info-content">
+                <ul id="parking-list" style="background:rgba(255,255,255,0.95); color:#222; border-radius:8px; margin:0 16px; padding:8px 0;">
+                    <li>停車場 A - 100公尺</li>
+                    <li>停車場 B - 250公尺</li>
+                    <li>停車場 C - 400公尺</li>
+                    <li>停車場 D - 300公尺</li>
+                    <li>停車場 E - 350公尺</li>
+                    <li>停車場 F - 700公尺</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- 頂部標題欄，包含按鈕和網站標題 -->
+    <div id="top-bar">
+        <h1 id="main-title">停車場比價網</h1>
+    </div>
+
+    <!-- 主要內容的包裝容器，包含地圖和右側資訊欄 -->
+    <div id="content-wrapper">
+        <!-- 中間主要內容區域 -->
+        <div id="main-content">
+            <div id="map-container" style="position: relative;">
+                <div id="map"></div>
+                <button id="locate-btn" class="locate-btn" onclick="locateUser()" title="定位我">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <circle cx="12" cy="12" r="8" stroke="#3498db" stroke-width="2" fill="#fff"/>
+                      <circle cx="12" cy="12" r="3" fill="#3498db"/>
+                    </svg>
+                </button>
+            </div>
+            <script>
+  mapboxgl.accessToken = 'pk.eyJ1IjoiY2FzcGVyMjEiLCJhIjoiY21jemluNnduMHQ5NTJrc2J6dGNoeG4zNCJ9.YOJYDPzvov3Q_SsxqjyR-A';
+
+  let userLocation = null;
+  let currentRouteId = null;
+  let activePopup = null;
+  let parking_list = [];  // 儲存距離資料
+  let parking_markers = [];  // 儲存 marker 和停車場資料對應
+
+  // 地圖初始化
+  const map = new mapboxgl.Map({
+    container: 'map',
+    style: 'mapbox://styles/mapbox/dark-v11',
+    center: [121.5376, 25.0273],
+    zoom: 13
+  });
+
+  window.addEventListener('click', (event) => {
+    console.log(parking_list);stene
+  });
+
+
+  // 載入停車場 marker，但不計算距離
+  fetch('parking_data.json')
+    .then(response => response.json())
+    .then(data => {
+      data.forEach(point => {
+        const marker = new mapboxgl.Marker({ color: '#e74c3c' })
+          .setLngLat([point.lng, point.lat])
+          .setPopup(new mapboxgl.Popup().setText(`${point.name}｜每小時${point.price_per_hour}元`))
+          .addTo(map);
+
+        // 把 marker 和對應停車場資料放進陣列
+        parking_markers.push({ marker: marker, data: point });
+
+        // hover 事件（先只顯示 popup，不畫路線）
+        marker.getElement().addEventListener('mouseenter', () => {
+          const parkingInfo = parking_list.find(p => p.name === point.name);
+          if (parkingInfo && userLocation) {
+            // 如果已計算過距離，就畫路線和顯示 popup
+            if (currentRouteId) {
+              if (map.getSource(currentRouteId)) {
+                map.removeLayer(currentRouteId);
+                map.removeSource(currentRouteId);
+              }
+            }
+            if (activePopup) activePopup.remove();
+
+            currentRouteId = 'route-' + Date.now();
+            map.addSource(currentRouteId, {
+              type: 'geojson',
+              data: { type: 'Feature', geometry: parkingInfo.route }
+            });
+            map.addLayer({
+              id: currentRouteId,
+              type: 'line',
+              source: currentRouteId,
+              layout: { 'line-cap': 'round', 'line-join': 'round' },
+              paint: { 'line-color': '#3b9ddd', 'line-width': 4 }
+            });
+
+            const coords = parkingInfo.route.coordinates;
+            const midPoint = coords[Math.floor(coords.length / 2)];
+
+            activePopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false })
+              .setLngLat(midPoint)
+              .setHTML(`<strong>距離:</strong> ${parkingInfo.distance} km<br><strong>預估:</strong> ${parkingInfo.duration} 分`)
+              .addTo(map);
+          }
+        });
+
+        marker.getElement().addEventListener('mouseleave', () => {
+          if (currentRouteId) {
+            if (map.getSource(currentRouteId)) {
+              map.removeLayer(currentRouteId);
+              map.removeSource(currentRouteId);
+            }
+            currentRouteId = null;
+          }
+          if (activePopup) {
+            activePopup.remove();
+            activePopup = null;
+          }
+        });
+      });
+    });
+
+  // 使用者定位＆計算距離
+  function locateUser() {
+    navigator.geolocation.getCurrentPosition(position => {
+      userLocation = [position.coords.longitude, position.coords.latitude];
+      new mapboxgl.Marker({ color: '#3498db' })
+        .setLngLat(userLocation)
+        .setPopup(new mapboxgl.Popup().setText("你的位置"))
+        .addTo(map);
+      map.flyTo({ center: userLocation, zoom: 15 });
+
+      // 定位完才去計算所有距離
+      parking_markers.forEach(item => {
+        const point = item.data;
+        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${userLocation[0]},${userLocation[1]};${point.lng},${point.lat}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+
+        fetch(url)
+          .then(res => res.json())
+          .then(result => {
+            const distanceKm = (result.routes[0].distance / 1000).toFixed(2);
+            const durationMin = Math.round(result.routes[0].duration / 60);
+            const route = result.routes[0].geometry;
+
+            parking_list.push({
+              ...point,
+              distance: parseFloat(distanceKm),
+              duration: durationMin,
+              route: route
+            });
+          });
+      });
+    }, () => {
+      alert("無法取得您的定位，請確認定位權限。");
+    });
+  }
+  </script>
+        </div>
+
+        <!-- 右側資訊欄，顯示找到的停車場 -->
+        <!-- (已移至左側sidenav) -->
+    </div>
+
+    <!-- 引入 JavaScript 檔案 -->
+    <script src="./main.js"></script>
+</body>
+</html>
