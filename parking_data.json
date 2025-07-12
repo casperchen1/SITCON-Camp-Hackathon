@@ -1,20 +1,28 @@
 [
-  {
-    "name": "停車場A",
-    "lat": 25.033964,
-    "lng": 121.564468,
-    "price_per_hour": 40
-  },
-  {
-    "name": "停車場B",
-    "lat": 25.047675,
-    "lng": 121.517055,
-    "price_per_hour": 50
-  },
-  {
-    "name": "停車場C",
-    "lat": 25.025137,
-    "lng": 121.522651,
-    "price_per_hour": 35
-  }
+    {
+        "name": "\u505c\u8eca\u5834A",
+        "lat": 25.033964,
+        "lng": 121.564468,
+        "price_per_hour": 40
+    },
+    {
+        "name": "\u505c\u8eca\u5834B",
+        "lat": 25.047675,
+        "lng": 121.517055,
+        "price_per_hour": 50
+    },
+    {
+        "name": "\u505c\u8eca\u5834C",
+        "lat": 25.025137,
+        "lng": 121.522651,
+        "price_per_hour": 35
+    },
+    {
+        "name": "string",
+        "lat": 0.0,
+        "lng": 0.0,
+        "price": 0,
+        "spaces": 0,
+        "eletric": true
+    }
 ]

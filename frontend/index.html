@@ -19,7 +19,7 @@
     </div>
 
     <!-- 左側滑動篩選欄 -->
-    <div id="filter-sidenav" class="sidenav">
+    <div id="filter-sidenav" class="sidenav" style="transition: left 0.3s; left: 0;">
         <div class="condition-toggle-group">
             <label id="condition-toggle-label" style="cursor:pointer;">篩選條件</label>
             <button id="condition-toggle-btn" class="triangle-btn" type="button" aria-label="展開條件"></button>
@@ -27,7 +27,7 @@
         <div id="condition-checkbox-group">
             <div class="checkbox-row">
                 <label><input type="checkbox"> 室內停車場</label>
-                <label><istenenput type="checkbox"> 電動車充電</label>
+                <label><input type="checkbox"> 電動車充電</label>
             </div>
             <input type="text" id="price-input" placeholder="價格上限(元/h)，例如: 50">
         </div>
@@ -153,6 +153,9 @@
         </div>
     </div>
 
+    <!-- Add menu button to the left side of the navbar -->
+    <button id="menu-toggle-btn" style="position:absolute; left:16px; top:16px; z-index:20; background:#333; color:#fff; border:none; border-radius:4px; padding:8px 12px; font-size:20px; cursor:pointer;">☰</button>
+
     <!-- 頂部標題欄，包含按鈕和網站標題 -->
     <div id="top-bar">
         <h1 id="main-title">停車場比價網</h1>
@@ -179,6 +182,8 @@
   let activePopup = null;
   let parking_list = [];  // 儲存距離資料
   let parking_markers = [];  // 儲存 marker 和停車場資料對應
+  let filterIndoor = false; // Variable to store whether '室內停車場' is selected
+  let filterEV = false; // Variable to store whether '電動車充電' is selected
 
   // 地圖初始化
   const map = new mapboxgl.Map({
@@ -194,69 +199,112 @@
 
 
   // 載入停車場 marker，但不計算距離
-  fetch('parking_data.json')
-    .then(response => response.json())
-    .then(data => {
-      data.forEach(point => {
-        const marker = new mapboxgl.Marker({ color: '#e74c3c' })
-          .setLngLat([point.lng, point.lat])
-          .setPopup(new mapboxgl.Popup().setText(`${point.name}｜每小時${point.price_per_hour}元`))
-          .addTo(map);
+  const MAX_PARKING_RENDER = 100; // <--- Set the maximum number of parking lots to render here
 
-        // 把 marker 和對應停車場資料放進陣列
-        parking_markers.push({ marker: marker, data: point });
+  // Isolated sorting function for parking lots
+  function sortParkingLots(lots) {
+    // Sort by distance ascending (smallest to largest)
+    return lots.sort((a, b) => a.distance - b.distance);
+  }
 
-        // hover 事件（先只顯示 popup，不畫路線）
-        marker.getElement().addEventListener('mouseenter', () => {
-          const parkingInfo = parking_list.find(p => p.name === point.name);
-          if (parkingInfo && userLocation) {
-            // 如果已計算過距離，就畫路線和顯示 popup
+  // Compute distance between two coordinates (Haversine formula)
+  function computeDistance(lat1, lng1, lat2, lng2) {
+    const R = 6371; // Earth radius in km
+    const toRad = deg => deg * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+              Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  // Get user location first, then fetch and process parking lots
+  function renderParkingLotsWithDistance(userLat, userLng) {
+    // Remove all existing markers from the map
+    parking_markers.forEach(item => item.marker.remove());
+    parking_markers = [];
+    fetch('data/TCMSV_alldesc.json')
+      .then(response => response.json())
+      .then(json => {
+        let allParkingLots = json.data.park.slice(); // Store all parking lots
+        // Precompute distance for each lot (before filtering)
+        allParkingLots.forEach(lot => {
+          lot.distance = computeDistance(userLat, userLng, lot.lat, lot.lng);
+        });
+        allParkingLots = sortParkingLots(allParkingLots); // Sort by distance
+        // Now apply filters, but keep fetching until at least MAX_PARKING_RENDER lots
+        let filteredLots = [];
+        let i = 0;
+        while (filteredLots.length < MAX_PARKING_RENDER && i < allParkingLots.length) {
+          const lot = allParkingLots[i];
+          if ((!filterIndoor || lot.inside === true) && (!filterEV || lot.charge === true)) {
+            filteredLots.push(lot);
+          }
+          i++;
+        }
+        filteredLots.forEach(point => {
+          const marker = new mapboxgl.Marker({ color: '#e74c3c' })
+            .setLngLat([point.lng, point.lat])
+            .setPopup(new mapboxgl.Popup().setText(`${point.name}｜價格：${point.price}`))
+            .addTo(map);
+
+          // 把 marker 和對應停車場資料放進陣列
+          parking_markers.push({ marker: marker, data: point });
+
+          // hover 事件（先只顯示 popup，不畫路線）
+          marker.getElement().addEventListener('mouseenter', () => {
+            const parkingInfo = parking_list.find(p => p.name === point.name);
+            if (parkingInfo && userLocation) {
+              // 如果已計算過距離，就畫路線和顯示 popup
+              if (currentRouteId) {
+                if (map.getSource(currentRouteId)) {
+                  map.removeLayer(currentRouteId);
+                  map.removeSource(currentRouteId);
+                }
+              }
+              if (activePopup) activePopup.remove();
+
+              currentRouteId = 'route-' + Date.now();
+              map.addSource(currentRouteId, {
+                type: 'geojson',
+                data: { type: 'Feature', geometry: parkingInfo.route }
+              });
+              map.addLayer({
+                id: currentRouteId,
+                type: 'line',
+                source: currentRouteId,
+                layout: { 'line-cap': 'round', 'line-join': 'round' },
+                paint: { 'line-color': '#3b9ddd', 'line-width': 4 }
+              });
+
+              const coords = parkingInfo.route.coordinates;
+              const midPoint = coords[Math.floor(coords.length / 2)];
+
+              activePopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false })
+                .setLngLat(midPoint)
+                .setHTML(`<strong>距離:</strong> ${parkingInfo.distance} km<br><strong>預估:</strong> ${parkingInfo.duration} 分`)
+                .addTo(map);
+            }
+          });
+
+          marker.getElement().addEventListener('mouseleave', () => {
             if (currentRouteId) {
               if (map.getSource(currentRouteId)) {
                 map.removeLayer(currentRouteId);
                 map.removeSource(currentRouteId);
               }
+              currentRouteId = null;
             }
-            if (activePopup) activePopup.remove();
-
-            currentRouteId = 'route-' + Date.now();
-            map.addSource(currentRouteId, {
-              type: 'geojson',
-              data: { type: 'Feature', geometry: parkingInfo.route }
-            });
-            map.addLayer({
-              id: currentRouteId,
-              type: 'line',
-              source: currentRouteId,
-              layout: { 'line-cap': 'round', 'line-join': 'round' },
-              paint: { 'line-color': '#3b9ddd', 'line-width': 4 }
-            });
-
-            const coords = parkingInfo.route.coordinates;
-            const midPoint = coords[Math.floor(coords.length / 2)];
-
-            activePopup = new mapboxgl.Popup({ closeButton: false, closeOnClick: false })
-              .setLngLat(midPoint)
-              .setHTML(`<strong>距離:</strong> ${parkingInfo.distance} km<br><strong>預估:</strong> ${parkingInfo.duration} 分`)
-              .addTo(map);
-          }
-        });
-
-        marker.getElement().addEventListener('mouseleave', () => {
-          if (currentRouteId) {
-            if (map.getSource(currentRouteId)) {
-              map.removeLayer(currentRouteId);
-              map.removeSource(currentRouteId);
+            if (activePopup) {
+              activePopup.remove();
+              activePopup = null;
             }
-            currentRouteId = null;
-          }
-          if (activePopup) {
-            activePopup.remove();
-            activePopup = null;
-          }
+          });
         });
       });
-    });
+  }
 
   // 使用者定位＆計算距離
   function locateUser() {
@@ -268,7 +316,10 @@
         .addTo(map);
       map.flyTo({ center: userLocation, zoom: 15 });
 
-      // 定位完才去計算所有距離
+      // 預先計算所有停車場距離並渲染
+      renderParkingLotsWithDistance(position.coords.latitude, position.coords.longitude);
+
+      // 定位完才去計算所有距離（原本的邏輯保留）
       parking_markers.forEach(item => {
         const point = item.data;
         const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${userLocation[0]},${userLocation[1]};${point.lng},${point.lat}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
@@ -292,7 +343,70 @@
       alert("無法取得您的定位，請確認定位權限。");
     });
   }
-  </script>
+
+  // 如果一進來就有定位權限，直接渲染
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(position => {
+      renderParkingLotsWithDistance(position.coords.latitude, position.coords.longitude);
+    });
+  } else {
+    // fallback: 不顯示任何停車場
+  }
+
+  // Listen for checkbox change
+  document.addEventListener('DOMContentLoaded', function() {
+    const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+    const indoorCheckbox = checkboxes[0];
+    const evCheckbox = checkboxes[1];
+    if (indoorCheckbox) {
+      indoorCheckbox.addEventListener('change', function() {
+        filterIndoor = this.checked;
+        if (userLocation) {
+          renderParkingLotsWithDistance(userLocation[1], userLocation[0]);
+        }
+      });
+    }
+    if (evCheckbox) {
+      evCheckbox.addEventListener('change', function() {
+        filterEV = this.checked;
+        if (userLocation) {
+          renderParkingLotsWithDistance(userLocation[1], userLocation[0]);
+        }
+      });
+    }
+  });
+
+    // --- Responsive map/sidebar layout fix ---
+    // Ensure flex layout for content wrapper
+    const style = document.createElement('style');
+    style.innerHTML = `
+      #content-wrapper { display: flex; height: 100vh; }
+      #filter-sidenav { width: 320px; min-width: 320px; max-width: 320px; }
+      #main-content { flex: 1 1 0; display: flex; flex-direction: column; }
+      #map-container { width: 100%; transition: width 0.3s; }
+      #map { width: 100%; height: 70vh; min-height: 400px; transition: width 0.3s; }
+    `;
+    document.head.appendChild(style);
+    // --- End flex layout fix ---
+
+    document.addEventListener('DOMContentLoaded', function() {
+      const menuBtn = document.getElementById('menu-toggle-btn');
+      const sidenav = document.getElementById('filter-sidenav');
+      const mapContainer = document.getElementById('map-container');
+      let sidenavOpen = true;
+      menuBtn.addEventListener('click', function() {
+        if (sidenavOpen) {
+          sidenav.style.display = 'none'; // Hide the sidenav completely
+          setTimeout(() => { map.resize(); }, 100); // Resize map after layout change
+          sidenavOpen = false;
+        } else {
+          sidenav.style.display = '';
+          setTimeout(() => { map.resize(); }, 100);
+          sidenavOpen = true;
+        }
+      });
+    });
+        </script>
         </div>
 
         <!-- 右側資訊欄，顯示找到的停車場 -->

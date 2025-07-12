@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>停車場比價網</title>
+    <link rel="stylesheet" href="./main.css">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.13.0/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.13.0/mapbox-gl.css" rel="stylesheet" />
+</head>
+<body>
+    <!-- 定位權限請求遮罩層 (預設隱藏) -->
+    <div id="location-overlay">
+        <div class="overlay-content">
+            <h2>需要您的位置權限</h2>
+            <p>為了提供停車場資訊，本網站需要取得您目前的位置。請允許我們存取您的位置資訊。</p>
+            <button id="retry-location-btn">重試</button>
+        </div>
+    </div>
+
+    <!-- 左側滑動篩選欄 -->
+    <div id="filter-sidenav" class="sidenav">
+        <a href="javascript:void(0)" class="closebtn" id="close-nav-btn">&times;</a>
+        <h4>篩選條件</h4>
+        <label><input type="checkbox"> 有遮雨棚</label>
+        <label><input type="checkbox"> 可預約</label>
+        <label><input type="checkbox"> 電動車充電</label>
+        <label><input type="checkbox"> 24小時營業</label>
+        <label for="price-input">價格上限:</label>
+        <input type="text" id="price-input" placeholder="例如: 50元/小時">
+    </div>
+
+    <!-- 頂部標題欄，包含按鈕和網站標題 -->
+    <div id="top-bar">
+        <button id="open-nav-btn">☰ 篩選</button>
+        <h1 id="main-title">停車場比價網</h1>
+        <select name="" id="fast-select">
+            <option id="" value="most-price">最高價格</option>
+            <option value="lest-price">最低價格</option>
+            <option value="most-position">最多空位</option>
+            <option value="lest-km">最近距離</option>
+        </select>
+    </div>
+
+    <!-- 主要內容的包裝容器，包含地圖和右側資訊欄 -->
+    <div id="content-wrapper">
+        <!-- 中間主要內容區域 -->
+        <div id="main-content">
+            <div id="map"></div>
+            <div id="map-container"></div>
+        </div>
+
+        <!-- 右側資訊欄，顯示最近停車場 -->
+        <div id="info-panel">
+            <h3>最近的停車場</h3>
+            <ul id="parking-list">
+                <!-- 停車場資料將會動態載入於此 (此為範例) -->
+                <li>停車場 A - 100公尺</li>
+                <li>停車場 B - 250公尺</li>
+                <li>停車場 C - 400公尺</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- 新增：顯示縮放比例的元素 -->
+    <div id="zoom-level-display">Zoom: 13.00</div>
+
+
+    <style>
+        #map {
+            position: absolute;
+            top: 60px;
+            bottom: 0;
+            width: 100vw;
+            }
+
+        .mapboxgl-popup-content {
+            background: rgba(40, 40, 40, 0.95);
+            color: #eee;
+            font-size: 14px;
+            border-radius: 8px;
+            padding: 10px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+            }
+
+        .marker-user { background: #3498db; }
+        .marker-parking { background: #e74c3c; }
+        /* 全局樣式 */
+        body {
+        background-color: blanchedalmond;
+            font-family: sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden; /* 防止水平滾動條出現 */
+        }
+
+        /* 側邊導覽選單 */
+        .sidenav {
+            height: 100%; /* 全高 */
+            width: 0; /* 初始寬度為0，由JS控制 */
+            position: fixed; /* 固定位置，不隨滾動條移動 */
+            z-index: 4; /* 在頂部欄之下 */
+            top: 0;
+            left: 0;
+            background-color: #111; /* 背景色 */
+            overflow-x: hidden; /* 隱藏水平滾動條 */
+            transition: 0.5s; /* 過渡動畫效果 */
+            padding-top: 80px; /* 調整內距，避開新的頂部欄 */
+        }
+
+        /* 側邊欄內的標題和標籤 */
+        .sidenav h4,
+        .sidenav label {
+            padding: 8px 8px 8px 32px;
+            text-decoration: none;
+            font-size: 18px;
+            color: #818181;
+            display: block;
+            transition: 0.3s;
+            cursor: pointer;
+            white-space: nowrap; /* 防止文字換行 */
+        }
+
+        .sidenav label:hover {
+            color: #f1f1f1;
+        }
+
+        /* 側邊欄內的文字輸入框 */
+        .sidenav input[type="text"] {
+            margin-left: 32px;
+            width: calc(100% - 72px);
+            padding: 8px;
+            font-size: 16px;
+            margin-top: 5px;
+        }
+
+        /* 側邊欄的關閉按鈕 */
+        .sidenav .closebtn {
+            position: absolute;
+            top: 10px; /* 調整位置以對齊頂部欄 */
+            right: 25px;
+            font-size: 36px;
+            margin-left: 50px;
+            color: #818181;
+            text-decoration: none;
+        }
+
+        .sidenav .closebtn:hover {
+            color: #f1f1f1;
+        }
+
+        /* 頂部標題欄容器 */
+        #top-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 70px; /* 設定固定高度 */
+            background-color: #333; /* 深色背景 */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* 添加陰影 */
+            display: flex;
+            align-items: center;
+            padding: 0 20px; /* 左右內距 */
+            box-sizing: border-box;
+            z-index: 5; /* 確保在最上層，高於側邊欄 */
+        }
+
+        /* 開啟/關閉側邊欄的切換按鈕 */
+        #open-nav-btn {
+            font-size: 20px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px; /* 圓角 */
+        }
+
+        #open-nav-btn:hover {
+            background-color: #3e8e41;
+        }
+
+        /* 網站主標題樣式 */
+        #main-title {
+            position: absolute; /* 使用絕對定位來脫離文檔流 */
+            left: 50%; /* 水平置中 */
+            transform: translateX(-50%); /* 透過 transform 精確置中 */
+            margin: 0;
+            font-size: 28px; /* 加大字體 */
+            color: #fff; /* 白色文字 */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* 更換字體 */
+        }
+
+        #fast-select{
+            position: absolute; /* 使用絕對定位來脫離文檔流 */
+            right: 5%; /* 水平置中 */
+            transform: translateX(-50%); /* 透過 transform 精確置中 */
+            margin: 0;
+            font-size: 18px; /* 加大字體 */
+            color: #000000; /* 白色文字 */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* 更換字體 */
+        }
+
+        /* 主要內容的包裝容器，使用 Flexbox 進行佈局 */
+        #content-wrapper {
+            display: flex;
+            transition: margin-left .5s; /* 配合側邊欄滑動的動畫 */
+            padding-top: 70px; /* 調整內距，避開頂部欄 */
+        }
+
+        /* 中間內容區域 */
+        #main-content {
+            flex-grow: 1; /* 佔用剩餘的所有空間 */
+            padding: 20px;
+        }
+
+        /* 地圖容器的佔位符 */
+        #map-container {
+            width: 100%;
+            height: calc(100vh - 70px - 40px); /* 計算高度，減去頂部欄和內距 */
+            background-color: #e0e0e0;
+            border: 1px solid #aaa;
+            box-sizing: border-box;
+        }
+
+        /* 右側資訊欄 */
+        #info-panel {
+            width: 300px; /* 固定寬度 */
+            flex-shrink: 0; /* 防止被壓縮 */
+            background-color: #f1f1f1;
+            padding: 20px;
+            height: calc(100vh - 70px); /* 計算高度以填滿螢幕，減去頂部欄高度 */
+            overflow-y: auto; /* 內容過多時顯示滾動條 */
+            box-sizing: border-box;
+        }
+
+        /* 將 "最近的停車場" 標題置中 */
+        #info-panel h3 {
+            margin-top: 0;
+            text-align: center;
+        }
+
+        /* 停車場列表樣式 */
+        #parking-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        #parking-list li {
+            background-color: #fff;
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+            margin-bottom: 10px; /* Add some space between list items */
+            border-radius: 5px; /* Optional: add rounded corners */
+        }
+
+        /* 定位權限遮罩層樣式 */
+        #location-overlay {
+            display: none; /* 預設隱藏，由 JS 控制顯示 */
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8); /* 半透明黑色背景 */
+            z-index: 10; /* 確保在最頂層 */
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        #location-overlay .overlay-content {
+            max-width: 500px;
+            padding: 20px;
+        }
+
+        #location-overlay button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        /* 新增：縮放比例顯示元素的樣式 */
+        #zoom-level-display {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 6; /* Ensure it's above the map */
+        }
+    </style>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <!-- 引入 JavaScript 檔案 -->
+    <script>
+    // filepath: /home/camp/SITCON-Camp-Hackathon/con.html
+    mapboxgl.accessToken = 'pk.eyJ1IjoiY2FzcGVyMjEiLCJhIjoiY21jemluNnduMHQ5NTJrc2J6dGNoeG4zNCJ9.YOJYDPzvov3Q_SsxqjyR-A';
+
+    let userLocation = null;
+    let currentRouteId = null;
+    let activePopup = null; // 這個變數主要用於距離 popup，與停車場資訊 popup 分開
+    let parking_list = [];  // 儲存距離資料
+    let parking_data_raw = []; // 儲存原始停車場資料
+    let activeParkingsPopups = []; // 新增：儲存目前開啟的停車場資訊 popup 參考
+
+    // 地圖初始化
+    const map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/dark-v11',
+        center: [121.5376, 25.0273],
+        zoom: 13
+    });
+
+    // 獲取縮放比例顯示元素
+    const zoomLevelDisplay = document.getElementById('zoom-level-display');
+
+    // 當地圖載入完成後執行
+    map.on('load', () => {
+        // 載入停車場資料並添加到 Mapbox Source
+        fetch('parking_data.json')
+            .then(response => response.json())
+            .then(data => {
+                parking_data_raw = data; // 儲存原始資料供後續使用
+
+                // 添加 GeoJSON Source，啟用聚類
+                map.addSource('parkings', {
+                    type: 'geojson',
+                    data: {
+                        type: 'FeatureCollection',
+                        features: data.map(point => ({
+                            type: 'Feature',
+                            properties: point, // 將停車場資料存入 properties
+                            geometry: {
+                                type: 'Point',
+                                coordinates: [point.lng, point.lat]
+                            }
+                        }))
+                    },
+                    cluster: true, // 啟用聚類
+                    clusterMaxZoom: 14, // **調整** 最大聚類縮放級別 (在此級別以上不聚類，從 15 改為 14)
+                    clusterRadius: 50 // 聚類半徑 (像素)
+                });
+
+                // 添加聚類圓圈層
+                map.addLayer({
+                    id: 'clusters',
+                    type: 'circle',
+                    source: 'parkings',
+                    filter: ['has', 'point_count'], // 只顯示有 point_count 屬性的 feature (即聚類)
+                    paint: {
+                        'circle-color': [
+                            'step', // 根據點的數量設定顏色
+                            ['get', 'point_count'],
+                            '#51bbd6', 50, // **調整** 點數 < 50 時的顏色
+                            '#f1f075', 500, // **調整** 點數 50-499 時的顏色
+                            '#f28cb1' // **調整** 點數 >= 500 時的顏色
+                        ],
+                        'circle-radius': [
+                            'step', // 根據點的數量設定半徑
+                            ['get', 'point_count'],
+                            20, 50, // **調整** 點數 < 50 時的半徑 (從 15 改為 20)
+                            30, 500, // **調整** 點數 50-499 時的半徑 (從 25 改為 30)
+                            40 // **調整** 點數 >= 500 時的半徑 (從 35 改為 40)
+                        ]
+                    }
+                });
+
+                // 添加聚類數量文字層
+                map.addLayer({
+                    id: 'cluster-count',
+                    type: 'symbol',
+                    source: 'parkings',
+                    filter: ['has', 'point_count'], // 只顯示有 point_count 屬性的 feature (即聚類)
+                    layout: {
+                        'text-field': ['get', 'point_count_abbreviated'], // 顯示縮寫後的數量
+                        'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
+                        'text-size': 12 // 保持文字大小為 12
+                    },
+                    paint: {
+                        'text-color': '#fff' // 文字顏色
+                    }
+                });
+
+                // 添加未聚類點層 (個別停車場標記)
+                map.addLayer({
+                    id: 'unclustered-point',
+                    type: 'circle',
+                    source: 'parkings',
+                    filter: ['!', ['has', 'point_count']],
+                    paint: {
+                        'circle-color': '#e74c3c',
+                        'circle-radius': 8,
+                        'circle-stroke-width': 1,
+                        'circle-stroke-color': '#fff'
+                    }
+                });
+
+                // --- 顯示空位數在節點上（zoom <= 15） ---
+                map.addLayer({
+                    id: 'parking-space-count',
+                    type: 'symbol',
+                    source: 'parkings',
+                    filter: [
+                        'all',
+                        ['!', ['has', 'point_count']],
+                        ['<=', ['zoom'], 15]
+                    ],
+                    layout: {
+                        'text-field': ['to-string', ['get', 'available_spaces']],
+                        'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                        'text-size': 13,
+                        'text-offset': [0, -1.5],
+                        'text-anchor': 'bottom'
+                    },
+                    paint: {
+                        'text-color': '#fff',
+                        'text-halo-color': '#000',
+                        'text-halo-width': 1
+                    }
+                });
+
+                // --- 顯示空位和價格在節點上（zoom > 15） ---
+                map.addLayer({
+                    id: 'parking-space-price',
+                    type: 'symbol',
+                    source: 'parkings',
+                    filter: [
+                        'all',
+                        ['!', ['has', 'point_count']],
+                        ['>', ['zoom'], 13]
+                    ],
+                    layout: {
+                        'text-field': [
+                            'format',
+                            ['to-string', ['get', 'available_spaces']], {},
+                            ' / ', {},
+                            ['to-string', ['get', 'price_per_hour']], {'font-scale': 0.9},
+                            '元', {'font-scale': 0.8}
+                        ],
+                        'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                        'text-size': 13,
+                        'text-offset': [0, -2.2],
+                        'text-anchor': 'bottom'
+                    },
+                    paint: {
+                        'text-color': '#ffd700',
+                        'text-halo-color': '#000',
+                        'text-halo-width': 1.2
+                    }
+                });
+                // --- 結束 ---
+
+
+                // --- 處理聚類點擊事件 ---
+                map.on('click', 'clusters', (e) => {
+                    const features = map.queryRenderedFeatures(e.point, {
+                        layers: ['clusters']
+                    });
+                    const clusterId = features[0].properties.cluster_id;
+                    map.getSource('parkings').getClusterExpansionZoom(
+                        clusterId,
+                        (err, zoom) => {
+                            if (err) return;
+
+                            map.easeTo({
+                                center: features[0].geometry.coordinates,
+                                zoom: zoom
+                            });
+                        }
+                    );
+                });
+
+                // --- 處理未聚類點擊事件 (顯示 popup) ---
+                map.on('click', 'unclustered-point', (e) => {
+                    const features = map.queryRenderedFeatures(e.point, {
+                        layers: ['unclustered-point']
+                    });
+                    if (!features.length) return;
+
+                    const feature = features[0];
+                    const point = feature.properties;
+
+                    // 關閉所有其他打開的停車場資訊 popup
+                    activeParkingsPopups.forEach(popup => popup.remove());
+                    activeParkingsPopups = [];
+
+                    // 最高詳細度：空位數 + 價格 + 類型 + 地址
+                    const popupContent = `<strong>${point.name}</strong><br>空位: ${point.available_spaces}<br>價格: ${point.price_per_hour}元/小時<br>類型: ${point.type}<br>地址: ${point.address}`;
+
+                    const popup = new mapboxgl.Popup()
+                        .setLngLat(feature.geometry.coordinates)
+                        .setHTML(popupContent)
+                        .addTo(map);
+
+                    activeParkingsPopups.push(popup);
+
+                    popup.on('close', () => {
+                        activeParkingsPopups = activeParkingsPopups.filter(p => p !== popup);
+                    });
+                });
+
+                // 改變鼠標樣式
+                map.on('mouseenter', 'clusters', () => {
+                    map.getCanvas().style.cursor = 'pointer';
+                });
+                map.on('mouseleave', 'clusters', () => {
+                    map.getCanvas().style.cursor = '';
+                });
+                 map.on('mouseenter', 'unclustered-point', () => {
+                    map.getCanvas().style.cursor = 'pointer';
+                });
+                map.on('mouseleave', 'unclustered-point', () => {
+                    map.getCanvas().style.cursor = '';
+                });
+
+
+                // --- 新增地圖縮放事件監聽器以即時更新 Popup 內容 ---
+                // 使用 'zoom' 事件來即時更新開啟的 popup 內容
+                map.on('zoom', () => {
+                    const currentZoom = map.getZoom();
+                    const zoomLevel4 = 16;
+                    const zoomLevel3 = 14; // 現在是顯示個別點的最低級別
+
+                    // 遍歷所有目前開啟的停車場資訊 popup
+                    activeParkingsPopups.forEach(popup => {
+                        const popupLngLat = popup.getLngLat();
+                        // 找到對應的停車場資料
+                        // 這裡假設經緯度可以唯一識別停車場
+                        const point = parking_data_raw.find(p =>
+                            p.lng === popupLngLat.lng && p.lat === popupLngLat.lat
+                        );
+
+                        if (point) {
+                            let popupContent = '';
+
+                            if (currentZoom >= zoomLevel4) {
+                                popupContent = `<strong>${point.name}</strong><br>空位: ${point.available_spaces}<br>價格: ${point.price_per_hour}元/小時<br>類型: ${point.type}<br>地址: ${point.address}`;
+                            } else if (currentZoom >= zoomLevel3) { // 現在是顯示個別點的最低級別
+                                popupContent = `<strong>${point.name}</strong><br>空位: ${point.available_spaces}<br>價格: ${point.price_per_hour}元/小時<br>類型: ${point.type}`;
+                            } else {
+                                // In theory, popups for unclustered points shouldn't be open below zoomLevel3 (14)
+                                // because the layer is not visible. But as a fallback:
+                                popupContent = `<strong>${point.name}</strong>`; // Basic content
+                            }
+
+                            // Update popup content
+                            popup.setHTML(popupContent);
+                        }
+                    });
+                });
+
+                // --- 新增 zoomend 事件監聽器以更新右側列表 ---
+                // This listener is triggered when zooming finishes.
+                map.on('zoomend', () => {
+                    updateParkingList(); // Calls the function to update the right panel
+                });
+
+                // 初始載入時也更新一次列表 (如果地圖初始縮放就 >= clusterMaxZoom)
+                updateParkingList();
+
+            });
+    });
+
+    // 新增函式：根據地圖可見範圍和縮放級別更新右側停車場列表
+    function updateParkingList() {
+        const parkingListElement = document.getElementById('parking-list');
+        parkingListElement.innerHTML = ''; // 清空現有列表
+
+        const currentZoom = map.getZoom();
+
+        // zoom <= 15 時顯示所有標記的完整資訊（依照原本的顯示位置）
+        if (currentZoom <= 15) {
+            const visibleFeatures = map.queryRenderedFeatures({
+                layers: ['unclustered-point']
+            });
+
+            visibleFeatures.forEach(feature => {
+                const point = feature.properties;
+                const listItem = document.createElement('li');
+                listItem.innerHTML = `
+                    <strong>${point.name}</strong><br>
+                    空位: ${point.available_spaces}<br>
+                    價格: ${point.price_per_hour}元/小時<br>
+                    類型: ${point.type}<br>
+                    地址: ${point.address}
+                `;
+                parkingListElement.appendChild(listItem);
+            });
+        }
+        // zoom > 15 時不顯示任何列表
+    }
+
+
+    // 使用者定位＆計算距離
+    function locateUser() {
+        navigator.geolocation.getCurrentPosition(position => {
+            userLocation = [position.coords.longitude, position.coords.latitude];
+
+            // 移除舊的使用者 marker (如果存在)
+            const userMarkers = document.querySelectorAll('.marker-user');
+            userMarkers.forEach(marker => marker.remove());
+
+            // 添加新的使用者 marker (藍色標記)
+            // 這部分程式碼已經存在並使用 .marker-user CSS 類別來設定藍色背景
+            const el = document.createElement('div');
+            el.className = 'marker-user'; // 使用 CSS 類別來樣式化 (在 style 區塊中設定為藍色)
+             new mapboxgl.Marker(el)
+                .setLngLat(userLocation)
+                .setPopup(new mapboxgl.Popup().setText("當前位置")) // 將 popup 文字設定為「當前位置」
+                .addTo(map);
+
+            map.flyTo({ center: userLocation, zoom: 15 });
+
+            // 定位完才去計算所有距離
+            parking_data_raw.forEach(point => { // 使用原始資料計算距離
+                const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${userLocation[0]},${userLocation[1]};${point.lng},${point.lat}?geometries=geojson&access_token=${mapboxgl.accessToken}`;
+
+                fetch(url)
+                    .then(res => res.json())
+                    .then(result => {
+                        // 檢查 routes 是否存在且非空
+                        if (result.routes && result.routes.length > 0) {
+                            const distanceKm = (result.routes[0].distance / 1000).toFixed(2);
+                            const durationMin = Math.round(result.routes[0].duration / 60);
+                            const route = result.routes[0].geometry;
+
+                            parking_list.push({
+                                ...point,
+                                distance: parseFloat(distanceKm),
+                                duration: durationMin,
+                                route: route
+                            });
+                        } else {
+                            console.warn(`無法計算到停車場 ${point.name} 的路線`);
+                            // 可以選擇在這裡處理無法計算路線的點，例如不加入 parking_list 或標記為無法到達
+                        }
+                    })
+                    .catch(error => {
+                        console.error(`計算到停車場 ${point.name} 的路線時發生錯誤:`, error);
+                    });
+            });
+        }, () => {
+            // 定位失敗的回呼
+            alert("無法取得您的定位，請確認定位權限。");
+            showLocationOverlay(true); // 定位失敗時顯示遮罩層
+        });
+    }
+    // --- DOM 元素獲取 ---
+    // 獲取需要操作的網頁元素
+    const sidenav = document.getElementById("filter-sidenav");
+    const contentWrapper = document.getElementById("content-wrapper");
+    const topBar = document.getElementById("top-bar"); // 獲取頂部標題欄
+    const openBtn = document.getElementById("open-nav-btn");
+    const closeBtn = document.getElementById("close-nav-btn");
+    const locationOverlay = document.getElementById("location-overlay"); // 獲取定位遮罩層
+    const retryLocationBtn = document.getElementById("retry-location-btn"); // 獲取重試按鈕
+
+    // --- 常數定義 ---
+    // 定義側邊欄的寬度，方便統一管理和修改
+    const sidebarWidth = "280px";
+    const sidebarWidthInt = 280; // 整數形式用於計算按鈕位置
+
+    // --- 側邊欄控制功能 ---
+
+    /**
+     * 開啟側邊欄的函式
+     * 將側邊欄寬度設為預定值，並將主內容區和頂部欄向右推移
+     */
+    function openNav() {
+        sidenav.style.width = sidebarWidth;
+        contentWrapper.style.marginLeft = sidebarWidth;
+        // 將整個頂部標題欄移動到側邊欄的右邊
+        topBar.style.left = (sidebarWidthInt + 20) + 'px';
+    }
+
+    /**
+     * 關閉側邊欄的函式
+     * 將側邊欄寬度設為0，並將主內容區和頂部欄移回原位
+     */
+    function closeNav() {
+        sidenav.style.width = "0";
+        contentWrapper.style.marginLeft = "0";
+        // 將整個頂部標題欄移回原位
+        topBar.style.left = "20px";
+    }
+
+    /**
+     * 切換側邊欄狀態的函式
+     * 檢查側邊欄目前是否開啟，並執行對應的開/關函式
+     */
+    function toggleNav() {
+        if (sidenav.style.width === sidebarWidth) {
+            closeNav();
+        } else {
+            openNav();
+        }
+    }
+
+    // --- GPS 定位功能 ---
+
+    /**
+     * 顯示或隱藏定位遮罩層
+     * @param {boolean} show - true 為顯示, false 為隱藏
+     */
+    function showLocationOverlay(show) {
+        // 使用 flex 來顯示，使其內容可以置中
+        locationOverlay.style.display = show ? 'flex' : 'none';
+    }
+
+    /**
+     * 請求使用者地理位置的函式
+     */
+    function requestLocation() {
+        // 檢查瀏覽器是否支援 Geolocation API
+        if (navigator.geolocation) {
+            // 如果支援，則呼叫 getCurrentPosition 方法
+            navigator.geolocation.getCurrentPosition(
+                // 成功獲取位置後的回呼函式
+                (position) => {
+                    showLocationOverlay(false); // 成功後，隱藏遮罩層
+                    alert(`定位成功！\n緯度: ${position.coords.latitude}\n經度: ${position.coords.longitude}`);
+                    // 在這裡可以接續處理地圖定位等功能
+                    locateUser(); // 定位成功後呼叫 locateUser 載入地圖和停車場
+                },
+                // 獲取位置失敗後的回呼函式 (例如使用者拒絕)
+                (error) => {
+                    console.error("Geolocation error:", error);
+                    showLocationOverlay(true); // 失敗後，顯示遮罩層鎖定畫面
+                    alert("無法取得您的定位，請確認定位權限。");
+                }
+            );
+        } else {
+            // 如果瀏覽器不支援，則提示使用者並鎖定畫面
+            alert("您的瀏覽器不支援GPS定位功能。");
+            showLocationOverlay(true);
+        }
+    }
+
+    // --- 事件監聽器設定 ---
+
+    // 當整個頁面DOM結構載入完成後執行
+    document.addEventListener('DOMContentLoaded', () => {
+        // 立即請求一次GPS定位
+        requestLocation();
+    });
+
+    // 為開啟/關閉按鈕新增點擊事件監聽器
+    openBtn.addEventListener("click", toggleNav);
+
+    // 為側邊欄內的關閉按鈕新增點擊事件監聽器
+    closeBtn.addEventListener("click", closeNav);
+
+    // 為遮罩層中的重試按鈕新增點擊事件
+    retryLocationBtn.addEventListener('click', requestLocation);
+
+    // 新增鍵盤快捷鍵監聽器
+    document.addEventListener('keydown', (event) => {
+        // 當使用者按下 Ctrl + G 時，觸發定位功能
+        if (event.ctrlKey && event.key.toLowerCase() === 'g') {
+            event.preventDefault(); // 防止瀏覽器預設行為 (例如: 尋找)
+            alert("偵測到快捷鍵，正在重新定位...");
+            requestLocation();
+        }
+    });
+
+    // 新增地圖縮放事件監聽器，更新縮放比例顯示
+    map.on('zoom', () => {
+        const currentZoom = map.getZoom();
+        // Mapbox zoom levels are logarithmic, so a simple percentage isn't standard.
+        // Displaying the raw zoom level is more common.
+        zoomLevelDisplay.textContent = `Zoom: ${currentZoom.toFixed(2)}`;
+    });
+
+    // Initial update of the zoom display
+    zoomLevelDisplay.textContent = `Zoom: ${map.getZoom().toFixed(2)}`;
+
+</script>
+</body>
+</html>

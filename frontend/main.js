@@ -71,7 +71,6 @@ function requestLocation() {
             // 成功獲取位置後的回呼函式
             (position) => {
                 showLocationOverlay(false); // 成功後，隱藏遮罩層
-                alert(`定位成功！\n緯度: ${position.coords.latitude}\n經度: ${position.coords.longitude}`);
                 // 在這裡可以接續處理地圖定位等功能
             },
             // 獲取位置失敗後的回呼函式 (例如使用者拒絕)
